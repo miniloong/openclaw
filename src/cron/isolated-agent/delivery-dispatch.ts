@@ -9,8 +9,9 @@ import { deliverOutboundPayloads } from "../../infra/outbound/deliver.js";
 import { resolveAgentOutboundIdentity } from "../../infra/outbound/identity.js";
 import { buildOutboundSessionContext } from "../../infra/outbound/session-context.js";
 import { logWarn } from "../../logger.js";
-import type { CronJob, CronRunTelemetry } from "../types.js";
+import type { CronDeliveryTarget, CronJob, CronRunTelemetry } from "../types.js";
 import type { DeliveryTargetResolution } from "./delivery-target.js";
+import { resolveDeliveryTarget } from "./delivery-target.js";
 import { pickSummaryFromOutput } from "./helpers.js";
 import type { RunCronAgentTurnResult } from "./run.js";
 import {
@@ -479,4 +480,74 @@ export async function dispatchCronDelivery(
     synthesizedText,
     deliveryPayloads,
   };
+}
+
+export type AdditionalTargetsDeliveryParams = {
+  cfg: OpenClawConfig;
+  deps: CliDeps;
+  agentId: string;
+  agentSessionKey: string;
+  targets: CronDeliveryTarget[];
+  payloads: ReplyPayload[];
+  bestEffort: boolean;
+  abortSignal?: AbortSignal;
+};
+
+export type AdditionalTargetResult = {
+  channel: string;
+  to: string;
+  delivered: boolean;
+  error?: string;
+};
+
+/**
+ * After primary delivery succeeds, fan out the same payloads to each
+ * additional target. Each target is independent — one failure does not
+ * block the others.
+ */
+export async function deliverToAdditionalTargets(
+  params: AdditionalTargetsDeliveryParams,
+): Promise<AdditionalTargetResult[]> {
+  const results: AdditionalTargetResult[] = [];
+  const identity = resolveAgentOutboundIdentity(params.cfg, params.agentId);
+  const session = buildOutboundSessionContext({
+    cfg: params.cfg,
+    agentId: params.agentId,
+    sessionKey: params.agentSessionKey,
+  });
+
+  for (const target of params.targets) {
+    const resolved = await resolveDeliveryTarget(params.cfg, params.agentId, {
+      channel: target.channel,
+      to: target.to,
+      accountId: target.accountId,
+    });
+    if (!resolved.ok) {
+      const errMsg = resolved.error.message;
+      logWarn(`[additional-delivery] failed to resolve target ${target.channel}:${target.to}: ${errMsg}`);
+      results.push({ channel: target.channel, to: target.to, delivered: false, error: errMsg });
+      continue;
+    }
+    try {
+      await deliverOutboundPayloads({
+        cfg: params.cfg,
+        channel: resolved.channel,
+        to: resolved.to,
+        accountId: resolved.accountId,
+        threadId: resolved.threadId,
+        payloads: params.payloads,
+        session,
+        identity,
+        bestEffort: params.bestEffort,
+        deps: createOutboundSendDeps(params.deps),
+        abortSignal: params.abortSignal,
+      });
+      results.push({ channel: target.channel, to: target.to, delivered: true });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logWarn(`[additional-delivery] delivery to ${target.channel}:${target.to} failed: ${errMsg}`);
+      results.push({ channel: target.channel, to: target.to, delivered: false, error: errMsg });
+    }
+  }
+  return results;
 }
