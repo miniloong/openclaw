@@ -414,6 +414,172 @@ describe("normalizeCronJobCreate", () => {
     expect(delivery.mode).toBeUndefined();
     expect(delivery.to).toBe("123");
   });
+
+  it("resolves current sessionTarget to a persistent session when context is available", () => {
+    const normalized = normalizeCronJobCreate(
+      {
+        name: "current-session",
+        schedule: { kind: "cron", expr: "* * * * *" },
+        sessionTarget: "current",
+        payload: { kind: "agentTurn", message: "hello" },
+      },
+      { sessionContext: { sessionKey: "agent:main:discord:group:ops" } },
+    ) as unknown as Record<string, unknown>;
+
+    expect(normalized.sessionTarget).toBe("session:agent:main:discord:group:ops");
+  });
+
+  it("falls back current sessionTarget to isolated without context", () => {
+    const normalized = normalizeCronJobCreate({
+      name: "current-without-context",
+      schedule: { kind: "cron", expr: "* * * * *" },
+      sessionTarget: "current",
+      payload: { kind: "agentTurn", message: "hello" },
+    }) as unknown as Record<string, unknown>;
+
+    expect(normalized.sessionTarget).toBe("isolated");
+  });
+
+  it("preserves custom session ids with a session: prefix", () => {
+    const normalized = normalizeCronJobCreate({
+      name: "custom-session",
+      schedule: { kind: "cron", expr: "* * * * *" },
+      sessionTarget: "session:MySessionID",
+      payload: { kind: "agentTurn", message: "hello" },
+    }) as unknown as Record<string, unknown>;
+
+    expect(normalized.sessionTarget).toBe("session:MySessionID");
+  });
+
+  it("normalizes additionalTargets with valid channel and to", () => {
+    const normalized = normalizeCronJobCreate({
+      name: "additional targets",
+      enabled: true,
+      schedule: { kind: "every", everyMs: 60_000 },
+      sessionTarget: "isolated",
+      wakeMode: "now",
+      payload: { kind: "agentTurn", message: "hello" },
+      delivery: {
+        mode: "announce",
+        channel: "telegram",
+        to: "123",
+        additionalTargets: [
+          { channel: "signal", to: "+15550001111" },
+          { channel: "discord", to: "channel-456", accountId: "bot-b" },
+        ],
+      },
+    }) as unknown as Record<string, unknown>;
+
+    const delivery = normalized.delivery as Record<string, unknown>;
+    const targets = delivery.additionalTargets as Array<Record<string, unknown>> | undefined;
+    expect(targets).toHaveLength(2);
+    expect(targets?.[0]).toEqual({
+      channel: "signal",
+      to: "+15550001111",
+    });
+    expect(targets?.[1]).toEqual({
+      channel: "discord",
+      to: "channel-456",
+      accountId: "bot-b",
+    });
+  });
+
+  it("normalizes additionalTargets channel and to casing and trimming", () => {
+    const normalized = normalizeCronJobCreate({
+      name: "additional targets casing",
+      enabled: true,
+      schedule: { kind: "every", everyMs: 60_000 },
+      sessionTarget: "isolated",
+      wakeMode: "now",
+      payload: { kind: "agentTurn", message: "hello" },
+      delivery: {
+        mode: "announce",
+        channel: "telegram",
+        to: "123",
+        additionalTargets: [{ channel: "  TeLeGrAm  ", to: "  user-abc  " }],
+      },
+    }) as unknown as Record<string, unknown>;
+
+    const delivery = normalized.delivery as Record<string, unknown>;
+    const targets = delivery.additionalTargets as Array<Record<string, unknown>> | undefined;
+    expect(targets?.[0]).toEqual({
+      channel: "telegram",
+      to: "user-abc",
+    });
+  });
+
+  it("filters out invalid additionalTargets in normalizeCronJobCreate", () => {
+    const normalized = normalizeCronJobCreate({
+      name: "invalid additional targets",
+      enabled: true,
+      schedule: { kind: "every", everyMs: 60_000 },
+      sessionTarget: "isolated",
+      wakeMode: "now",
+      payload: { kind: "agentTurn", message: "hello" },
+      delivery: {
+        mode: "announce",
+        channel: "telegram",
+        to: "123",
+        additionalTargets: [
+          { channel: "signal", to: "+15550001111" },
+          { channel: "" } as never,
+          { to: "user-abc" } as never,
+          null,
+          undefined,
+          { channel: "discord", to: "channel-456" },
+        ],
+      },
+    }) as unknown as Record<string, unknown>;
+
+    const delivery = normalized.delivery as Record<string, unknown>;
+    const targets = delivery.additionalTargets as Array<Record<string, unknown>> | undefined;
+    expect(targets).toHaveLength(2);
+    expect(targets?.[0].channel).toBe("signal");
+    expect(targets?.[1].channel).toBe("discord");
+  });
+
+  it("removes additionalTargets when array is empty after filtering", () => {
+    const normalized = normalizeCronJobCreate({
+      name: "empty additional targets",
+      enabled: true,
+      schedule: { kind: "every", everyMs: 60_000 },
+      sessionTarget: "isolated",
+      wakeMode: "now",
+      payload: { kind: "agentTurn", message: "hello" },
+      delivery: {
+        mode: "announce",
+        channel: "telegram",
+        to: "123",
+        additionalTargets: [{ channel: "" } as never, { to: "user-abc" } as never],
+      },
+    }) as unknown as Record<string, unknown>;
+
+    const delivery = normalized.delivery as Record<string, unknown>;
+    expect(delivery.additionalTargets).toBeUndefined();
+  });
+
+  it("strips empty accountId from additionalTargets", () => {
+    const normalized = normalizeCronJobCreate({
+      name: "empty accountId",
+      enabled: true,
+      schedule: { kind: "every", everyMs: 60_000 },
+      sessionTarget: "isolated",
+      wakeMode: "now",
+      payload: { kind: "agentTurn", message: "hello" },
+      delivery: {
+        mode: "announce",
+        channel: "telegram",
+        to: "123",
+        additionalTargets: [{ channel: "discord", to: "channel-456", accountId: "   " }],
+      },
+    }) as unknown as Record<string, unknown>;
+
+    const delivery = normalized.delivery as Record<string, unknown>;
+    const targets = delivery.additionalTargets as Array<Record<string, unknown>> | undefined;
+    expect(targets).toHaveLength(1);
+    const firstTarget = targets?.[0];
+    expect(firstTarget && "accountId" in firstTarget).toBe(false);
+  });
 });
 
 describe("normalizeCronJobPatch", () => {
