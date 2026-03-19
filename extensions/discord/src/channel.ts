@@ -36,10 +36,8 @@ import {
   type ChannelMessageActionAdapter,
   type ChannelPlugin,
   type OpenClawConfig,
+  type ResolvedDiscordAccount,
 } from "openclaw/plugin-sdk/discord";
-import { resolveOutboundSendDep } from "../../../src/infra/outbound/send-deps.js";
-import { normalizeMessageChannel } from "../../../src/utils/message-channel.js";
-import { inspectDiscordAccount } from "./account-inspect.js";
 import { getDiscordRuntime } from "./runtime.js";
 
 const meta = getChatChannelMeta("discord");

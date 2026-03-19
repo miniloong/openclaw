@@ -423,7 +423,7 @@ describe("normalizeCronJobCreate", () => {
         sessionTarget: "current",
         payload: { kind: "agentTurn", message: "hello" },
       },
-      { sessionContext: { sessionKey: "agent:main:discord:group:ops" } },
+      { applyDefaults: false },
     ) as unknown as Record<string, unknown>;
 
     expect(normalized.sessionTarget).toBe("session:agent:main:discord:group:ops");

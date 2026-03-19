@@ -53,6 +53,7 @@ type CronUpdatePatch = {
       to?: string;
       accountId?: string;
       bestEffort?: boolean;
+      additionalTargets?: Array<{ channel?: string; to?: string; accountId?: string }>;
     };
   };
 };
