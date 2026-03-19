@@ -110,7 +110,7 @@ async function runCronSimpleAndGetUpdatePatch(
   };
 }
 
-function mockCronEditJobLookup(schedule: unknown): void {
+function mockCronEditJobLookup(jobData: { schedule: unknown; delivery?: unknown }): void {
   callGatewayFromCli.mockImplementation(
     async (method: string, _opts: unknown, params?: unknown) => {
       if (method === "cron.status") {
@@ -120,7 +120,7 @@ function mockCronEditJobLookup(schedule: unknown): void {
         return {
           ok: true,
           params: {},
-          jobs: [{ id: "job-1", schedule }],
+          jobs: [{ id: "job-1", schedule: jobData.schedule, delivery: jobData.delivery }],
         };
       }
       return { ok: true, params };
@@ -134,22 +134,22 @@ function getGatewayCallParams<T>(method: string): T {
 }
 
 async function runCronEditWithScheduleLookup(
-  schedule: unknown,
+  jobData: { schedule: unknown; delivery?: unknown },
   editArgs: string[],
 ): Promise<CronUpdatePatch> {
   resetGatewayMock();
-  mockCronEditJobLookup(schedule);
+  mockCronEditJobLookup(jobData);
   const program = buildProgram();
   await program.parseAsync(["cron", "edit", "job-1", ...editArgs], { from: "user" });
   return getGatewayCallParams<CronUpdatePatch>("cron.update");
 }
 
 async function expectCronEditWithScheduleLookupExit(
-  schedule: unknown,
+  jobData: { schedule: unknown; delivery?: unknown },
   editArgs: string[],
 ): Promise<void> {
   resetGatewayMock();
-  mockCronEditJobLookup(schedule);
+  mockCronEditJobLookup(jobData);
   const program = buildProgram();
   await expect(
     program.parseAsync(["cron", "edit", "job-1", ...editArgs], { from: "user" }),
@@ -629,7 +629,7 @@ describe("cron cli", () => {
 
   it("applies --exact to existing cron job without requiring --cron on edit", async () => {
     const patch = await runCronEditWithScheduleLookup(
-      { kind: "cron", expr: "0 */2 * * *", tz: "UTC", staggerMs: 300_000 },
+      { schedule: { kind: "cron", expr: "0 */2 * * *", tz: "UTC", staggerMs: 300_000 } },
       ["--exact"],
     );
     expect(patch?.patch?.schedule).toEqual({
@@ -641,7 +641,9 @@ describe("cron cli", () => {
   });
 
   it("rejects --exact on edit when existing job is not cron", async () => {
-    await expectCronEditWithScheduleLookupExit({ kind: "every", everyMs: 60_000 }, ["--exact"]);
+    await expectCronEditWithScheduleLookupExit({ schedule: { kind: "every", everyMs: 60_000 } }, [
+      "--exact",
+    ]);
   });
 
   it("patches failure alert settings on cron edit", async () => {
@@ -727,5 +729,138 @@ describe("cron cli", () => {
     expect(patch?.patch?.failureAlert?.after).toBe(1);
     expect(patch?.patch?.failureAlert?.mode).toBe("webhook");
     expect(patch?.patch?.failureAlert?.accountId).toBe("bot-a");
+  });
+
+  it("adds additional target on cron edit", async () => {
+    const patch = await runCronEditWithScheduleLookup(
+      {
+        schedule: { kind: "cron", expr: "0 * * * *" },
+        delivery: { mode: "announce", additionalTargets: [] },
+      },
+      ["--additional-channel", "discord", "--additional-to", "#alerts"],
+    );
+
+    expect(patch?.patch?.delivery?.additionalTargets).toEqual([
+      { channel: "discord", to: "#alerts" },
+    ]);
+  });
+
+  it("adds additional target with account on cron edit", async () => {
+    const patch = await runCronEditWithScheduleLookup(
+      {
+        schedule: { kind: "cron", expr: "0 * * * *" },
+        delivery: { mode: "announce", additionalTargets: [] },
+      },
+      [
+        "--additional-channel",
+        "telegram",
+        "--additional-to",
+        "123456",
+        "--additional-account",
+        "bot-b",
+      ],
+    );
+
+    expect(patch?.patch?.delivery?.additionalTargets).toEqual([
+      { channel: "telegram", to: "123456", accountId: "bot-b" },
+    ]);
+  });
+
+  it("appends to existing additional targets on cron edit", async () => {
+    const patch = await runCronEditWithScheduleLookup(
+      {
+        schedule: { kind: "cron", expr: "0 * * * *" },
+        delivery: {
+          mode: "announce",
+          additionalTargets: [{ channel: "slack", to: "#general" }],
+        },
+      },
+      ["--additional-channel", "discord", "--additional-to", "#alerts"],
+    );
+
+    expect(patch?.patch?.delivery?.additionalTargets).toEqual([
+      { channel: "slack", to: "#general" },
+      { channel: "discord", to: "#alerts" },
+    ]);
+  });
+
+  it("removes additional target by index on cron edit", async () => {
+    const patch = await runCronEditWithScheduleLookup(
+      {
+        schedule: { kind: "cron", expr: "0 * * * *" },
+        delivery: {
+          mode: "announce",
+          additionalTargets: [
+            { channel: "slack", to: "#general" },
+            { channel: "discord", to: "#alerts" },
+            { channel: "telegram", to: "123456" },
+          ],
+        },
+      },
+      ["--remove-additional-target", "2"],
+    );
+
+    expect(patch?.patch?.delivery?.additionalTargets).toEqual([
+      { channel: "slack", to: "#general" },
+      { channel: "telegram", to: "123456" },
+    ]);
+  });
+
+  it("clears all additional targets on cron edit", async () => {
+    const patch = await runCronEditWithScheduleLookup(
+      {
+        schedule: { kind: "cron", expr: "0 * * * *" },
+        delivery: {
+          mode: "announce",
+          additionalTargets: [
+            { channel: "slack", to: "#general" },
+            { channel: "discord", to: "#alerts" },
+          ],
+        },
+      },
+      ["--clear-additional-targets"],
+    );
+
+    expect(patch?.patch?.delivery?.additionalTargets).toEqual([]);
+  });
+
+  it("rejects --additional-to without --additional-channel on cron edit", async () => {
+    await expectCronEditWithScheduleLookupExit({ schedule: { kind: "cron", expr: "0 * * * *" } }, [
+      "--additional-to",
+      "#alerts",
+    ]);
+  });
+
+  it("rejects --additional-channel without --additional-to on cron edit", async () => {
+    await expectCronEditWithScheduleLookupExit({ schedule: { kind: "cron", expr: "0 * * * *" } }, [
+      "--additional-channel",
+      "discord",
+    ]);
+  });
+
+  it("rejects invalid --remove-additional-target index on cron edit", async () => {
+    await expectCronEditWithScheduleLookupExit(
+      {
+        schedule: { kind: "cron", expr: "0 * * * *" },
+        delivery: {
+          mode: "announce",
+          additionalTargets: [{ channel: "slack", to: "#general" }],
+        },
+      },
+      ["--remove-additional-target", "5"],
+    );
+  });
+
+  it("rejects zero --remove-additional-target index on cron edit", async () => {
+    await expectCronEditWithScheduleLookupExit(
+      {
+        schedule: { kind: "cron", expr: "0 * * * *" },
+        delivery: {
+          mode: "announce",
+          additionalTargets: [{ channel: "slack", to: "#general" }],
+        },
+      },
+      ["--remove-additional-target", "0"],
+    );
   });
 });
