@@ -638,6 +638,7 @@ export async function deliverToAdditionalTargets(
         channel: target.channel,
         to: target.to,
         accountId: target.accountId,
+        sessionKey: params.agentSessionKey,
       });
       if (!resolved.ok) {
         const errMsg = resolved.error.message;
@@ -652,7 +653,7 @@ export async function deliverToAdditionalTargets(
         });
         continue;
       }
-      await deliverOutboundPayloads({
+      const deliveryResults = await deliverOutboundPayloads({
         cfg: params.cfg,
         channel: resolved.channel,
         to: resolved.to,
@@ -665,7 +666,24 @@ export async function deliverToAdditionalTargets(
         deps: createOutboundSendDeps(params.deps),
         abortSignal: params.abortSignal,
       });
-      results.push({ channel: target.channel, to: target.to, delivered: true });
+      const delivered = deliveryResults.length > 0 && deliveryResults.every((r) => r.messageId);
+      if (delivered) {
+        results.push({ channel: target.channel, to: target.to, delivered: true });
+      } else {
+        const emptyMsg =
+          deliveryResults.length === 0
+            ? "no payloads returned"
+            : "one or more payloads missing messageId";
+        logWarn(
+          `[additional-delivery] delivery to ${target.channel}:${target.to} incomplete: ${emptyMsg}`,
+        );
+        results.push({
+          channel: target.channel,
+          to: target.to,
+          delivered: false,
+          error: emptyMsg,
+        });
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       logWarn(`[additional-delivery] delivery to ${target.channel}:${target.to} failed: ${errMsg}`);

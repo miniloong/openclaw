@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../infra/outbound/deliver.js", () => ({
-  deliverOutboundPayloads: vi.fn().mockResolvedValue([{ ok: true }]),
+  deliverOutboundPayloads: vi.fn().mockResolvedValue([{ messageId: "msg-1" }]),
 }));
 
 vi.mock("../../infra/outbound/identity.js", () => ({
@@ -123,7 +123,7 @@ describe("deliverToAdditionalTargets", () => {
 
     const mockDeliverOutbound = deliverOutboundPayloads as ReturnType<typeof vi.fn>;
     mockDeliverOutbound
-      .mockResolvedValueOnce([{ ok: true }])
+      .mockResolvedValueOnce([{ messageId: "msg-1" }])
       .mockRejectedValueOnce(new Error("network error"));
 
     const results = await deliverToAdditionalTargets({
@@ -169,6 +169,7 @@ describe("deliverToAdditionalTargets", () => {
       channel: "telegram",
       to: "123456",
       accountId: "bot-coordinator",
+      sessionKey: "agent:main",
     });
   });
 
