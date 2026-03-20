@@ -866,9 +866,15 @@ export async function runCronIsolatedAgentTurn(params: {
     withRunSession,
   });
   // Fan out to additional delivery targets (best-effort, independent of primary).
+  // Only fire when the primary delivery actually succeeded; a failed or skipped
+  // primary should not leak cron output to extra channels.
   const additionalTargets = deliveryPlan.additionalTargets;
   const finalPayloads = deliveryResult.deliveryPayloads ?? deliveryPayloads;
+  const primaryDelivered = deliveryResult.delivered || deliveryResult.result?.delivered === true;
   const fanOutAdditional = async () => {
+    if (!primaryDelivered) {
+      return;
+    }
     if (!additionalTargets || additionalTargets.length === 0 || finalPayloads.length === 0) {
       return;
     }
@@ -890,7 +896,9 @@ export async function runCronIsolatedAgentTurn(params: {
       deliveryAttempted:
         deliveryResult.result.deliveryAttempted ?? deliveryResult.deliveryAttempted,
     };
-    await fanOutAdditional();
+    if (deliveryResult.result.status === "ok") {
+      await fanOutAdditional();
+    }
     if (!hasFatalErrorPayload || deliveryResult.result.status !== "ok") {
       return resultWithDeliveryMeta;
     }

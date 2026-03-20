@@ -229,11 +229,8 @@ function coerceDelivery(delivery: UnknownRecord) {
         }
       }
     }
-    if (coerced.length > 0) {
-      next.additionalTargets = coerced;
-    } else {
-      delete next.additionalTargets;
-    }
+    // Preserve empty array so downstream merge sees the key and clears stored targets.
+    next.additionalTargets = coerced;
   } else if ("additionalTargets" in next) {
     delete next.additionalTargets;
   }

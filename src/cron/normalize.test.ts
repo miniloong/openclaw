@@ -538,7 +538,7 @@ describe("normalizeCronJobCreate", () => {
     expect(targets?.[1].channel).toBe("discord");
   });
 
-  it("removes additionalTargets when array is empty after filtering", () => {
+  it("preserves empty additionalTargets array when all entries are invalid", () => {
     const normalized = normalizeCronJobCreate({
       name: "empty additional targets",
       enabled: true,
@@ -555,7 +555,7 @@ describe("normalizeCronJobCreate", () => {
     }) as unknown as Record<string, unknown>;
 
     const delivery = normalized.delivery as Record<string, unknown>;
-    expect(delivery.additionalTargets).toBeUndefined();
+    expect(delivery.additionalTargets).toEqual([]);
   });
 
   it("strips empty accountId from additionalTargets", () => {

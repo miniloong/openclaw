@@ -177,7 +177,7 @@ export const CronFailureDestinationSchema = Type.Object(
 const CronDeliveryTargetSchema = Type.Object(
   {
     channel: Type.Union([Type.Literal("last"), NonEmptyString]),
-    to: Type.String(),
+    to: NonEmptyString,
     accountId: Type.Optional(NonEmptyString),
   },
   { additionalProperties: false },

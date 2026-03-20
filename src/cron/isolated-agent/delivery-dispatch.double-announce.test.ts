@@ -414,3 +414,91 @@ describe("dispatchCronDelivery — double-announce guard", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Additional-targets fan-out guard: run.ts gates fan-out on
+// `deliveryResult.delivered || deliveryResult.result?.delivered`. These tests
+// verify that dispatchCronDelivery returns delivered=false in failure/skip
+// paths so the guard correctly prevents leaking output to extra channels.
+// ---------------------------------------------------------------------------
+
+describe("dispatchCronDelivery — delivered=false prevents additional-targets fan-out", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetCompletedDirectCronDeliveriesForTests();
+    vi.mocked(countActiveDescendantRuns).mockReturnValue(0);
+    vi.mocked(expectsSubagentFollowup).mockReturnValue(false);
+    vi.mocked(isLikelyInterimCronMessage).mockReturnValue(false);
+    vi.mocked(readDescendantSubagentFallbackReply).mockResolvedValue(undefined);
+    vi.mocked(waitForDescendantSubagentSummary).mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("unresolved delivery target (non-bestEffort) returns delivered=false", async () => {
+    const params = makeBaseParams({ synthesizedText: "Morning briefing." });
+    params.resolvedDelivery = {
+      ok: false,
+      error: { message: "channel not configured" },
+    } as never;
+
+    const state = await dispatchCronDelivery(params);
+
+    expect(state.delivered).toBe(false);
+    expect(state.result).toBeDefined();
+    expect(state.result!.status).toBe("error");
+    // Neither state.delivered nor result.delivered should be true
+    expect(state.result!.delivered).toBeUndefined();
+  });
+
+  it("unresolved delivery target (bestEffort) returns delivered=false with ok status", async () => {
+    const params = makeBaseParams({ synthesizedText: "Morning briefing." });
+    params.resolvedDelivery = {
+      ok: false,
+      error: { message: "channel not configured" },
+    } as never;
+    (params as Record<string, unknown>).deliveryBestEffort = true;
+
+    const state = await dispatchCronDelivery(params);
+
+    expect(state.delivered).toBe(false);
+    expect(state.result).toBeDefined();
+    expect(state.result!.status).toBe("ok");
+    expect(state.result!.delivered).toBeUndefined();
+  });
+
+  it("delivery not requested returns delivered=false", async () => {
+    const params = makeBaseParams({
+      synthesizedText: "Done.",
+      deliveryRequested: false,
+    });
+
+    const state = await dispatchCronDelivery(params);
+
+    expect(state.delivered).toBe(false);
+    expect(state.result).toBeUndefined();
+  });
+
+  it("permanent delivery error returns delivered=false", async () => {
+    vi.mocked(deliverOutboundPayloads).mockRejectedValue(new Error("chat not found"));
+
+    const params = makeBaseParams({ synthesizedText: "Report." });
+    const state = await dispatchCronDelivery(params);
+
+    expect(state.delivered).toBe(false);
+    expect(state.result).toBeDefined();
+    expect(state.result!.status).toBe("error");
+    expect(state.result!.delivered).toBeUndefined();
+  });
+
+  it("successful delivery returns delivered=true", async () => {
+    vi.mocked(deliverOutboundPayloads).mockResolvedValue([{ ok: true } as never]);
+
+    const params = makeBaseParams({ synthesizedText: "Briefing ready." });
+    const state = await dispatchCronDelivery(params);
+
+    expect(state.delivered).toBe(true);
+  });
+});
