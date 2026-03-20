@@ -378,7 +378,7 @@ export const handleSessionCommand: CommandHandler = async (params, allowTextComm
   const threadId =
     params.ctx.MessageThreadId != null ? String(params.ctx.MessageThreadId).trim() : "";
   const telegramConversationId = onTelegram ? resolveTelegramConversationId(params) : undefined;
-  const channelRuntime = getChannelRuntime();
+  
 
   const discordManager = onDiscord
     ? getChannelRuntime().discord.threadBindings.getManager(accountId)
