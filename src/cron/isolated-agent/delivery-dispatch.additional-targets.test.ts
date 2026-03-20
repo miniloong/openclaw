@@ -187,6 +187,38 @@ describe("deliverToAdditionalTargets", () => {
     expect(deliverOutboundPayloads).not.toHaveBeenCalled();
   });
 
+  it("continues to next target when resolution throws", async () => {
+    const mockResolveDeliveryTarget = resolveDeliveryTarget as ReturnType<typeof vi.fn>;
+    mockResolveDeliveryTarget
+      .mockRejectedValueOnce(new Error("plugin lookup crashed"))
+      .mockResolvedValueOnce({
+        ok: true,
+        channel: "signal",
+        to: "+15550001111",
+        accountId: undefined,
+        threadId: undefined,
+      });
+
+    const results = await deliverToAdditionalTargets({
+      cfg: {} as never,
+      deps: {} as never,
+      agentId: "main",
+      agentSessionKey: "agent:main",
+      targets: [
+        { channel: "broken", to: "does-not-matter" },
+        { channel: "signal", to: "+15550001111" },
+      ],
+      payloads: [{ text: "Hello world" }],
+      bestEffort: false,
+    });
+
+    expect(results).toHaveLength(2);
+    expect(results[0].delivered).toBe(false);
+    expect(results[0].error).toBe("plugin lookup crashed");
+    expect(results[1].delivered).toBe(true);
+    expect(deliverOutboundPayloads).toHaveBeenCalledTimes(1);
+  });
+
   it("uses bestEffort flag when delivering", async () => {
     const mockResolveDeliveryTarget = resolveDeliveryTarget as ReturnType<typeof vi.fn>;
     mockResolveDeliveryTarget.mockResolvedValue({

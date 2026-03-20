@@ -351,7 +351,20 @@ export function registerCronEditCommand(cron: Command) {
             if (delivery) {
               delivery.additionalTargets = updatedTargets;
             } else {
-              patch.delivery = { additionalTargets: updatedTargets };
+              const newDelivery: Record<string, unknown> = { additionalTargets: updatedTargets };
+              // Seed announce mode for legacy jobs that store delivery config in
+              // payload fields (deliver/channel/to) instead of a delivery object.
+              // Without mode, mergeCronDelivery defaults to "none" and silently
+              // disables the job's primary announcements.
+              if (!existing.delivery && existing.payload.kind === "agentTurn") {
+                const p = existing.payload;
+                const legacyActive =
+                  p.deliver === true || (p.deliver !== false && Boolean(p.to || p.channel));
+                if (legacyActive) {
+                  newDelivery.mode = "announce";
+                }
+              }
+              patch.delivery = newDelivery;
             }
           }
 

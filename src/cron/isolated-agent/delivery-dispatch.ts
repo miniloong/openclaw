@@ -626,25 +626,25 @@ export async function deliverToAdditionalTargets(
   });
 
   for (const target of params.targets) {
-    const resolved = await resolveDeliveryTarget(params.cfg, params.agentId, {
-      channel: target.channel,
-      to: target.to,
-      accountId: target.accountId,
-    });
-    if (!resolved.ok) {
-      const errMsg = resolved.error.message;
-      logWarn(
-        `[additional-delivery] failed to resolve target ${target.channel}:${target.to}: ${errMsg}`,
-      );
-      results.push({
+    try {
+      const resolved = await resolveDeliveryTarget(params.cfg, params.agentId, {
         channel: target.channel,
         to: target.to,
-        delivered: false,
-        error: errMsg,
+        accountId: target.accountId,
       });
-      continue;
-    }
-    try {
+      if (!resolved.ok) {
+        const errMsg = resolved.error.message;
+        logWarn(
+          `[additional-delivery] failed to resolve target ${target.channel}:${target.to}: ${errMsg}`,
+        );
+        results.push({
+          channel: target.channel,
+          to: target.to,
+          delivered: false,
+          error: errMsg,
+        });
+        continue;
+      }
       await deliverOutboundPayloads({
         cfg: params.cfg,
         channel: resolved.channel,

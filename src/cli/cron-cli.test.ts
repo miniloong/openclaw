@@ -53,6 +53,7 @@ type CronUpdatePatch = {
       to?: string;
       accountId?: string;
       bestEffort?: boolean;
+      additionalTargets?: { channel: string; to: string; accountId?: string }[];
     };
   };
 };
@@ -110,7 +111,11 @@ async function runCronSimpleAndGetUpdatePatch(
   };
 }
 
-function mockCronEditJobLookup(jobData: { schedule: unknown; delivery?: unknown }): void {
+function mockCronEditJobLookup(jobData: {
+  schedule: unknown;
+  delivery?: unknown;
+  payload?: unknown;
+}): void {
   callGatewayFromCli.mockImplementation(
     async (method: string, _opts: unknown, params?: unknown) => {
       if (method === "cron.status") {
@@ -120,7 +125,14 @@ function mockCronEditJobLookup(jobData: { schedule: unknown; delivery?: unknown 
         return {
           ok: true,
           params: {},
-          jobs: [{ id: "job-1", schedule: jobData.schedule, delivery: jobData.delivery }],
+          jobs: [
+            {
+              id: "job-1",
+              schedule: jobData.schedule,
+              delivery: jobData.delivery,
+              payload: jobData.payload,
+            },
+          ],
         };
       }
       return { ok: true, params };
@@ -134,7 +146,7 @@ function getGatewayCallParams<T>(method: string): T {
 }
 
 async function runCronEditWithScheduleLookup(
-  jobData: { schedule: unknown; delivery?: unknown },
+  jobData: { schedule: unknown; delivery?: unknown; payload?: unknown },
   editArgs: string[],
 ): Promise<CronUpdatePatch> {
   resetGatewayMock();
@@ -145,7 +157,7 @@ async function runCronEditWithScheduleLookup(
 }
 
 async function expectCronEditWithScheduleLookupExit(
-  jobData: { schedule: unknown; delivery?: unknown },
+  jobData: { schedule: unknown; delivery?: unknown; payload?: unknown },
   editArgs: string[],
 ): Promise<void> {
   resetGatewayMock();
@@ -862,5 +874,66 @@ describe("cron cli", () => {
       },
       ["--remove-additional-target", "0"],
     );
+  });
+
+  it("seeds announce mode when adding additional targets to legacy job with deliver:true", async () => {
+    const patch = await runCronEditWithScheduleLookup(
+      {
+        schedule: { kind: "cron", expr: "0 * * * *" },
+        payload: {
+          kind: "agentTurn",
+          message: "check",
+          deliver: true,
+          channel: "telegram",
+          to: "123",
+        },
+      },
+      ["--additional-channel", "discord", "--additional-to", "#alerts"],
+    );
+
+    expect(patch?.patch?.delivery?.mode).toBe("announce");
+    expect(patch?.patch?.delivery?.additionalTargets).toEqual([
+      { channel: "discord", to: "#alerts" },
+    ]);
+  });
+
+  it("seeds announce mode when adding additional targets to legacy job with implicit delivery", async () => {
+    const patch = await runCronEditWithScheduleLookup(
+      {
+        schedule: { kind: "cron", expr: "0 * * * *" },
+        payload: { kind: "agentTurn", message: "check", to: "123" },
+      },
+      ["--additional-channel", "discord", "--additional-to", "#alerts"],
+    );
+
+    expect(patch?.patch?.delivery?.mode).toBe("announce");
+  });
+
+  it("does not seed announce mode for legacy job with deliver:false", async () => {
+    const patch = await runCronEditWithScheduleLookup(
+      {
+        schedule: { kind: "cron", expr: "0 * * * *" },
+        payload: { kind: "agentTurn", message: "check", deliver: false },
+      },
+      ["--additional-channel", "discord", "--additional-to", "#alerts"],
+    );
+
+    expect(patch?.patch?.delivery?.mode).toBeUndefined();
+  });
+
+  it("does not seed mode when job already has delivery object", async () => {
+    const patch = await runCronEditWithScheduleLookup(
+      {
+        schedule: { kind: "cron", expr: "0 * * * *" },
+        delivery: { mode: "none" },
+        payload: { kind: "agentTurn", message: "check", deliver: true },
+      },
+      ["--additional-channel", "discord", "--additional-to", "#alerts"],
+    );
+
+    expect(patch?.patch?.delivery?.additionalTargets).toEqual([
+      { channel: "discord", to: "#alerts" },
+    ]);
+    expect(patch?.patch?.delivery?.mode).toBeUndefined();
   });
 });
