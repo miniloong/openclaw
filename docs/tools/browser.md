@@ -42,6 +42,44 @@ openclaw browser --browser-profile openclaw snapshot
 If you get “Browser disabled”, enable it in config (see below) and restart the
 Gateway.
 
+## Plugin control
+
+The default `browser` tool is now a bundled plugin that ships enabled by
+default. That means you can disable or replace it without removing the rest of
+OpenClaw's plugin system:
+
+```json5
+{
+  plugins: {
+    entries: {
+      browser: {
+        enabled: false,
+      },
+    },
+  },
+}
+```
+
+Disable the bundled plugin before installing another plugin that provides the
+same `browser` tool name. The default browser experience needs both:
+
+- `plugins.entries.browser.enabled` not disabled
+- `browser.enabled=true`
+
+If you turn off only the plugin, the bundled browser CLI (`openclaw browser`),
+gateway method (`browser.request`), agent tool, and default browser control
+service all disappear together. Your `browser.*` config stays intact for a
+replacement plugin to reuse.
+
+The bundled browser plugin also owns the browser runtime implementation now.
+Core keeps only shared Plugin SDK helpers plus compatibility re-exports for
+older internal import paths. In practice, removing or replacing
+`extensions/browser` removes the browser feature set instead of leaving a
+second core-owned runtime behind.
+
+Browser config changes still require a Gateway restart so the bundled plugin
+can re-register its browser service with the new settings.
+
 ## Profiles: `openclaw` vs `user`
 
 - `openclaw`: managed, isolated browser (no extension required).
@@ -88,6 +126,12 @@ Browser settings live in `~/.openclaw/openclaw.json`.
         attachOnly: true,
         color: "#00AA00",
       },
+      brave: {
+        driver: "existing-session",
+        attachOnly: true,
+        userDataDir: "~/Library/Application Support/BraveSoftware/Brave-Browser",
+        color: "#FB542B",
+      },
       remote: { cdpUrl: "http://10.0.0.42:9222", color: "#00AA00" },
     },
   },
@@ -114,6 +158,8 @@ Notes:
 - Local `openclaw` profiles auto-assign `cdpPort`/`cdpUrl` — set those only for remote CDP.
 - `driver: "existing-session"` uses Chrome DevTools MCP instead of raw CDP. Do
   not set `cdpUrl` for that driver.
+- Set `browser.profiles.<name>.userDataDir` when an existing-session profile
+  should attach to a non-default Chromium user profile such as Brave or Edge.
 
 ## Use Brave (or another Chromium-based browser)
 
@@ -176,6 +222,8 @@ Notes:
 
 - The node host exposes its local browser control server via a **proxy command**.
 - Profiles come from the node’s own `browser.profiles` config (same as local).
+- `nodeHost.browserProxy.allowProfiles` is optional. Leave it empty for the legacy/default behavior: all configured profiles remain reachable through the proxy, including profile create/delete routes.
+- If you set `nodeHost.browserProxy.allowProfiles`, OpenClaw treats it as a least-privilege boundary: only allowlisted profiles can be targeted, and persistent profile create/delete routes are blocked on the proxy surface.
 - Disable if you don’t want it:
   - On the node: `nodeHost.browserProxy.enabled=false`
   - On the gateway: `gateway.nodes.browser.mode="off"`
@@ -183,7 +231,7 @@ Notes:
 ## Browserless (hosted remote CDP)
 
 [Browserless](https://browserless.io) is a hosted Chromium service that exposes
-CDP endpoints over HTTPS. You can point a OpenClaw browser profile at a
+CDP endpoints over HTTPS. You can point an OpenClaw browser profile at a
 Browserless region endpoint and authenticate with your API key.
 
 Example:
@@ -289,11 +337,11 @@ Defaults:
 
 All control endpoints accept `?profile=<name>`; the CLI uses `--browser-profile`.
 
-## Chrome existing-session via MCP
+## Existing-session via Chrome DevTools MCP
 
-OpenClaw can also attach to a running Chrome profile through the official
-Chrome DevTools MCP server. This reuses the tabs and login state already open in
-that Chrome profile.
+OpenClaw can also attach to a running Chromium-based browser profile through the
+official Chrome DevTools MCP server. This reuses the tabs and login state
+already open in that browser profile.
 
 Official background and setup references:
 
@@ -305,13 +353,41 @@ Built-in profile:
 - `user`
 
 Optional: create your own custom existing-session profile if you want a
-different name or color.
+different name, color, or browser data directory.
 
-Then in Chrome:
+Default behavior:
 
-1. Open `chrome://inspect/#remote-debugging`
-2. Enable remote debugging
-3. Keep Chrome running and approve the connection prompt when OpenClaw attaches
+- The built-in `user` profile uses Chrome MCP auto-connect, which targets the
+  default local Google Chrome profile.
+
+Use `userDataDir` for Brave, Edge, Chromium, or a non-default Chrome profile:
+
+```json5
+{
+  browser: {
+    profiles: {
+      brave: {
+        driver: "existing-session",
+        attachOnly: true,
+        userDataDir: "~/Library/Application Support/BraveSoftware/Brave-Browser",
+        color: "#FB542B",
+      },
+    },
+  },
+}
+```
+
+Then in the matching browser:
+
+1. Open that browser's inspect page for remote debugging.
+2. Enable remote debugging.
+3. Keep the browser running and approve the connection prompt when OpenClaw attaches.
+
+Common inspect pages:
+
+- Chrome: `chrome://inspect/#remote-debugging`
+- Brave: `brave://inspect/#remote-debugging`
+- Edge: `edge://inspect/#remote-debugging`
 
 Live attach smoke test:
 
@@ -327,17 +403,17 @@ What success looks like:
 - `status` shows `driver: existing-session`
 - `status` shows `transport: chrome-mcp`
 - `status` shows `running: true`
-- `tabs` lists your already-open Chrome tabs
+- `tabs` lists your already-open browser tabs
 - `snapshot` returns refs from the selected live tab
 
 What to check if attach does not work:
 
-- Chrome is version `144+`
-- remote debugging is enabled at `chrome://inspect/#remote-debugging`
-- Chrome showed and you accepted the attach consent prompt
+- the target Chromium-based browser is version `144+`
+- remote debugging is enabled in that browser's inspect page
+- the browser showed and you accepted the attach consent prompt
 - `openclaw doctor` migrates old extension-based browser config and checks that
-  Chrome is installed locally with a compatible version, but it cannot enable
-  Chrome-side remote debugging for you
+  Chrome is installed locally for default auto-connect profiles, but it cannot
+  enable browser-side remote debugging for you
 
 Agent use:
 
@@ -351,10 +427,11 @@ Notes:
 
 - This path is higher-risk than the isolated `openclaw` profile because it can
   act inside your signed-in browser session.
-- OpenClaw does not launch Chrome for this driver; it attaches to an existing
-  session only.
-- OpenClaw uses the official Chrome DevTools MCP `--autoConnect` flow here, not
-  the legacy default-profile remote debugging port workflow.
+- OpenClaw does not launch the browser for this driver; it attaches to an
+  existing session only.
+- OpenClaw uses the official Chrome DevTools MCP `--autoConnect` flow here. If
+  `userDataDir` is set, OpenClaw passes it through to target that explicit
+  Chromium user data directory.
 - Existing-session screenshots support page captures and `--ref` element
   captures from snapshots, but not CSS `--element` selectors.
 - Existing-session `wait --url` supports exact, substring, and glob patterns
@@ -544,7 +621,7 @@ Notes:
   - `--format ai` (default when Playwright is installed): returns an AI snapshot with numeric refs (`aria-ref="<n>"`).
   - `--format aria`: returns the accessibility tree (no refs; inspection only).
   - `--efficient` (or `--mode efficient`): compact role snapshot preset (interactive + compact + depth + lower maxChars).
-  - Config default (tool/CLI only): set `browser.snapshotDefaults.mode: "efficient"` to use efficient snapshots when the caller does not pass a mode (see [Gateway configuration](/gateway/configuration#browser-openclaw-managed-browser)).
+  - Config default (tool/CLI only): set `browser.snapshotDefaults.mode: "efficient"` to use efficient snapshots when the caller does not pass a mode (see [Gateway configuration](/gateway/configuration-reference#browser)).
   - Role snapshot options (`--interactive`, `--compact`, `--depth`, `--selector`) force a role-based snapshot with refs like `ref=e12`.
   - `--frame "<iframe selector>"` scopes role snapshots to an iframe (pairs with role refs like `e12`).
   - `--interactive` outputs a flat, easy-to-pick list of interactive elements (best for driving actions).
