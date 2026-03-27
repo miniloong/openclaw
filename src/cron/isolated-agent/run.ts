@@ -764,8 +764,9 @@ export async function runCronIsolatedAgentTurn(params: {
     withRunSession,
   });
   // Fan out to additional delivery targets (best-effort, independent of primary).
-  // Only fire when an actual outbound send occurred on the primary; a suppressed,
-  // replay-cached, or skipped primary should not leak cron output to extra channels.
+  // Only fire when the primary delivery fully succeeded this run; suppressed sends,
+  // replay cache hits, skipped primary, or partial best-effort drops must not leak
+  // cron output to extra channels.
   const additionalTargets = deliveryPlan.additionalTargets;
   const finalPayloads = deliveryResult.deliveryPayloads ?? deliveryPayloads;
   const primarySendOccurred = deliveryResult.sendOccurred === true;

@@ -481,7 +481,9 @@ export async function dispatchCronDelivery(
         : await runDelivery();
       // Only mark delivered when ALL payloads succeeded (no partial failure).
       delivered = deliveryResults.length > 0 && !hadPartialFailure;
-      sendOccurred = deliveryResults.length > 0;
+      // Fan-out to additional cron targets keys off sendOccurred (run.ts); it must
+      // mean full primary success, not "some payload best-effort send happened".
+      sendOccurred = delivered;
       // Intentionally leave partial success uncached: replay may duplicate the
       // successful subset, but caching it here would permanently drop the
       // failed payloads by converting the replay into delivered=true.

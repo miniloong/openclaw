@@ -456,7 +456,9 @@ describe("dispatchCronDelivery — double-announce guard", () => {
     const second = await dispatchCronDelivery(params as never);
 
     expect(first.delivered).toBe(false);
+    expect(first.sendOccurred).toBe(false);
     expect(second.delivered).toBe(false);
+    expect(second.sendOccurred).toBe(false);
     expect(deliverOutboundPayloads).toHaveBeenCalledTimes(2);
   });
 
@@ -575,9 +577,9 @@ describe("dispatchCronDelivery — double-announce guard", () => {
 
 // ---------------------------------------------------------------------------
 // Additional-targets fan-out guard: run.ts gates fan-out on
-// `deliveryResult.delivered || deliveryResult.result?.delivered`. These tests
-// verify that dispatchCronDelivery returns delivered=false in failure/skip
-// paths so the guard correctly prevents leaking output to extra channels.
+// `deliveryResult.sendOccurred` (full primary success this run; false on replay
+// cache hits). These tests verify delivered=false / sendOccurred=false in
+// failure/skip paths so extra channels do not receive output incorrectly.
 // ---------------------------------------------------------------------------
 
 describe("dispatchCronDelivery — delivered=false prevents additional-targets fan-out", () => {
