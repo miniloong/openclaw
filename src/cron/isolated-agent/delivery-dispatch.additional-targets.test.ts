@@ -1,7 +1,7 @@
 /**
  * Tests for additional targets delivery functionality.
  *
- * This feature allows cron jobs to fan out the same payloads to 
+ * This feature allows cron jobs to fan out the same payloads to
  * multiple delivery targets after the primary delivery succeeds.
  */
 

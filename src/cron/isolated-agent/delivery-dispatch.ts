@@ -12,7 +12,6 @@ import {
 } from "../../infra/outbound/deliver.js";
 import { resolveAgentOutboundIdentity } from "../../infra/outbound/identity.js";
 import { buildOutboundSessionContext } from "../../infra/outbound/session-context.js";
-
 import { enqueueSystemEvent } from "../../infra/system-events.js";
 import { logWarn, logError } from "../../logger.js";
 import type { CronDeliveryTarget, CronJob, CronRunTelemetry } from "../types.js";
@@ -473,7 +472,6 @@ export async function dispatchCronDelivery(
           // See: https://github.com/openclaw/openclaw/issues/40545
           skipQueue: true,
         });
-      };
       const deliveryResults = options?.retryTransient
         ? await retryTransientDirectCronDelivery({
             jobId: params.job.id,
